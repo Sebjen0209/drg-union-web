@@ -3,23 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
-  const state = searchParams.get('state'); // This is the token
-  const error = searchParams.get('error');
-
-  if (error) {
-    return NextResponse.redirect(
-      new URL(`/error?message=${encodeURIComponent('Discord authentication failed')}`, request.url)
-    );
-  }
+  const state = searchParams.get('state'); // This is the token from initiate-link
 
   if (!code || !state) {
-    return NextResponse.redirect(
-      new URL('/error?message=Missing code or token', request.url)
-    );
+    return NextResponse.redirect(new URL('/error?message=Missing code or state', request.url));
   }
 
   try {
-    // Exchange Discord code for access token
+    // Exchange the code for Discord user info
     const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
       headers: {
@@ -29,31 +20,32 @@ export async function GET(request: NextRequest) {
         client_id: process.env.NEXT_PUBLIC_DISCORD_CLIENT_ID!,
         client_secret: process.env.DISCORD_CLIENT_SECRET!,
         grant_type: 'authorization_code',
-        code: code,
+        code,
         redirect_uri: process.env.NEXT_PUBLIC_DISCORD_REDIRECT_URI!,
       }),
     });
 
     if (!tokenResponse.ok) {
-      throw new Error('Failed to exchange Discord code for token');
+      throw new Error('Failed to exchange code for token');
     }
 
     const tokenData = await tokenResponse.json();
+    const accessToken = tokenData.access_token;
 
     // Get Discord user info
     const userResponse = await fetch('https://discord.com/api/users/@me', {
       headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
     });
 
     if (!userResponse.ok) {
-      throw new Error('Failed to fetch Discord user info');
+      throw new Error('Failed to fetch Discord user');
     }
 
     const discordUser = await userResponse.json();
 
-    // Complete the link by calling your API
+    // Call your backend to complete the link
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     const completeResponse = await fetch(`${apiUrl}/v1/users/complete-link`, {
       method: 'POST',
@@ -61,31 +53,27 @@ export async function GET(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        token: state,
+        token: state, // The token from initiate-link
         discord_id: discordUser.id,
         discord_username: discordUser.username,
-        discord_discriminator: discordUser.discriminator || '0',
-        discord_avatar: discordUser.avatar,
       }),
     });
 
-    const result = await completeResponse.json();
-
     if (!completeResponse.ok) {
-      return NextResponse.redirect(
-        new URL(`/error?message=${encodeURIComponent(result.error || 'Failed to link account')}`, request.url)
-      );
+      const errorData = await completeResponse.json();
+      throw new Error(errorData.error || 'Failed to complete link');
     }
 
-    // Success! Redirect to success page
+    const result = await completeResponse.json();
+
+    // Redirect to success page with user_id
     return NextResponse.redirect(
       new URL(`/success?user_id=${result.user_id}`, request.url)
     );
-
   } catch (error) {
-    console.error('Discord callback error:', error);
+    console.error('Discord OAuth error:', error);
     return NextResponse.redirect(
-      new URL(`/error?message=${encodeURIComponent('An error occurred during authentication')}`, request.url)
+      new URL(`/error?message=${encodeURIComponent((error as Error).message)}`, request.url)
     );
   }
 }
