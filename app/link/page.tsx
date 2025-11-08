@@ -3,6 +3,11 @@ import LinkContent from './linkContent';
 
 export default function LinkPage() {
   // Server component - has access to env vars
+   console.log('ENV CHECK:', {
+    clientId: process.env.NEXT_PUBLIC_DISCORD_CLIENT_ID,
+    redirectUri: process.env.NEXT_PUBLIC_DISCORD_REDIRECT_URI
+  });
+  
   const config = {
     discordClientId: process.env.NEXT_PUBLIC_DISCORD_CLIENT_ID!,
     discordRedirectUri: process.env.NEXT_PUBLIC_DISCORD_REDIRECT_URI!,
